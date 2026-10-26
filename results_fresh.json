@@ -1,0 +1,111 @@
+{
+  "model": {
+    "n_alerts": 679,
+    "miss_rate": 0.046,
+    "escalated_suspicious": 0.954,
+    "false_escalation_rate": 0.008,
+    "review_share": 0.0
+  },
+  "prosecutor": {
+    "n_alerts": 679,
+    "miss_rate": 0.0,
+    "escalated_suspicious": 1.0,
+    "false_escalation_rate": 0.299,
+    "review_share": 0.0
+  },
+  "full_nomem": {
+    "n_alerts": 679,
+    "miss_rate": 0.0,
+    "escalated_suspicious": 0.982,
+    "false_escalation_rate": 0.068,
+    "review_share": 0.334
+  },
+  "second_half_no_memory": {
+    "n_alerts": 341,
+    "miss_rate": 0.0,
+    "escalated_suspicious": 0.982,
+    "false_escalation_rate": 0.067,
+    "review_share": 0.126
+  },
+  "second_half_with_memory": {
+    "n_alerts": 341,
+    "miss_rate": 0.0,
+    "escalated_suspicious": 0.943,
+    "false_escalation_rate": 0.0,
+    "review_share": 0.144
+  },
+  "by_typology": {
+    "circular": {
+      "n": 55,
+      "crossexam_escalate": 1.0,
+      "crossexam_close": 0.0,
+      "model_escalate": 1.0
+    },
+    "dormant": {
+      "n": 35,
+      "crossexam_escalate": 1.0,
+      "crossexam_close": 0.0,
+      "model_escalate": 0.686
+    },
+    "layering": {
+      "n": 112,
+      "crossexam_escalate": 1.0,
+      "crossexam_close": 0.0,
+      "model_escalate": 1.0
+    },
+    "lookalike_cash_business": {
+      "n": 55,
+      "crossexam_escalate": 0.0,
+      "crossexam_close": 0.273,
+      "model_escalate": 0.018
+    },
+    "lookalike_family_loop": {
+      "n": 57,
+      "crossexam_escalate": 0.404,
+      "crossexam_close": 0.0,
+      "model_escalate": 0.0
+    },
+    "lookalike_marketplace": {
+      "n": 52,
+      "crossexam_escalate": 0.0,
+      "crossexam_close": 0.596,
+      "model_escalate": 0.0
+    },
+    "lookalike_property_sale": {
+      "n": 38,
+      "crossexam_escalate": 0.105,
+      "crossexam_close": 0.0,
+      "model_escalate": 0.0
+    },
+    "mule": {
+      "n": 29,
+      "crossexam_escalate": 1.0,
+      "crossexam_close": 0.0,
+      "model_escalate": 1.0
+    },
+    "none": {
+      "n": 196,
+      "crossexam_escalate": 0.0,
+      "crossexam_close": 0.526,
+      "model_escalate": 0.01
+    },
+    "structuring": {
+      "n": 50,
+      "crossexam_escalate": 0.9,
+      "crossexam_close": 0.0,
+      "model_escalate": 0.96
+    }
+  },
+  "citation_faithfulness": {
+    "notes": 679,
+    "all_tags_and_numbers_supported": 1.0
+  },
+  "audit_chain_valid": true,
+  "seeds": [
+    21,
+    22,
+    23,
+    24,
+    25
+  ]
+}

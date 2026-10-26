@@ -52,7 +52,7 @@ def run_seed(seed, scale=1.0):
         act = ACT[r["verdict"]["recommendation"]]
         out["full_nomem"].append((sus, act))
         out["typ"].setdefault(typ, []).append((act, info["score"] >= 0.5))
-        out["faith"].append(check_note(r["note"], r["evidence"])["ok"])
+        out["faith"].append(check_note(r["note"], r["evidence"], r["prosecution"], r["defence"], r["verdict"])["ok"])
         # memory arm: analyst decisions (simulated from ground truth) are fed back into memory as the queue is worked
         rm = inv_m.investigate(a, info["score"], info["rules"], mode="full")
         actm = ACT[rm["verdict"]["recommendation"]]
@@ -86,7 +86,9 @@ def summarize(seeds=SEEDS):
 
 
 if __name__ == "__main__":
-    res = summarize()
+    # usage: python -m crossexam.evaluate [out.json seed seed ...]; defaults to the published seeds and results.json
+    out_path = sys.argv[1] if len(sys.argv) > 1 else "results.json"
+    res = summarize([int(x) for x in sys.argv[2:]] or SEEDS)
     print(json.dumps(res, indent=2))
-    with open("results.json", "w") as f:
+    with open(out_path, "w") as f:
         json.dump(res, f, indent=2)

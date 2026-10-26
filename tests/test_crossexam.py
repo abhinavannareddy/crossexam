@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from crossexam.agents import Investigator, check_note
+from crossexam.agents import CaseAlreadyDecided, Investigator, check_note
 from crossexam.audit import AuditLog
 from crossexam.model import alerts, prepare, train
 
@@ -72,7 +72,58 @@ def test_citation_check_catches_fabrication(world):
     a = pick(al, cust, "layering")
     r = Investigator(d).investigate(a, al[a]["score"], al[a]["rules"])
     bad = r["note"] + "\n- E99: invented 123,456,789 SEK"
-    assert not check_note(bad.replace("Evidence:", "Evidence:", 1) + " [E99]", r["evidence"])["ok"]
+    assert not check_note(bad + " [E99]", r["evidence"])["ok"]
+
+
+def test_citation_check_catches_wrong_weights_and_referee_line(world):
+    d, al, cust = world
+    a = pick(al, cust, "layering")
+    r = Investigator(d).investigate(a, al[a]["score"], al[a]["rules"])
+    args = (r["evidence"], r["prosecution"], r["defence"], r["verdict"])
+    assert check_note(r["note"], *args)["ok"]
+    altered = r["note"].replace("(weight 0.40,", "(weight 0.99,", 1)
+    assert check_note(altered, *args)["mismatched_weights"]
+    altered = r["note"].replace("Referee: suspicion", "Referee: suspicion 9.99 vs", 1)
+    assert check_note(altered, *args)["mismatched_referee_line"]
+
+
+def test_decided_case_cannot_be_reopened_or_decided_twice(world):
+    d, al, cust = world
+    inv = Investigator(d)
+    a = pick(al, cust, "structuring")
+    r = inv.investigate(a, al[a]["score"], al[a]["rules"])
+    inv.decide(r["case_id"], "analyst1", "escalate")
+    assert len(inv.memory) == 1
+    with pytest.raises(CaseAlreadyDecided):
+        inv.investigate(a, al[a]["score"], al[a]["rules"])
+    with pytest.raises(CaseAlreadyDecided):
+        inv.decide(r["case_id"], "analyst2", "close")
+    assert inv.cases[r["case_id"]]["status"] == "escalated"
+    assert len(inv.memory) == 1
+
+
+def test_undecided_case_can_be_reinvestigated(world):
+    d, al, cust = world
+    inv = Investigator(d)
+    a = pick(al, cust, "mule")
+    inv.investigate(a, al[a]["score"], al[a]["rules"])
+    assert inv.investigate(a, al[a]["score"], al[a]["rules"])["status"] == "awaiting_analyst"
+
+
+def test_audit_anchor_detects_deleted_tail_and_persists(tmp_path):
+    path = str(tmp_path / "audit.db")
+    log = AuditLog(path)
+    for i in range(4):
+        log.add("C1", "x", "step", {"i": i})
+    anchor = log.head()
+    assert log.verify(anchor)["ok"]
+    log.db.execute("DELETE FROM audit WHERE id=4")
+    log.db.commit()
+    assert log.verify()["ok"]  # the chain alone cannot see a deleted tail
+    assert log.verify(anchor) == {"ok": False, "broken_at": "anchor"}
+    reopened = AuditLog(path)
+    reopened.add("C1", "x", "step", {"i": 99})
+    assert reopened.verify()["ok"] and reopened.head()["count"] == 4
 
 
 def test_audit_chain_detects_tampering(world):
@@ -97,8 +148,9 @@ def test_memory_changes_plan(world):
     assert any(e["kind"] == "precedent" for e in r2["evidence"])
 
 
-def test_api_flow():
+def test_api_flow(tmp_path, monkeypatch):
     from crossexam import api
+    monkeypatch.setenv("CROSSEXAM_AUDIT_DB", str(tmp_path / "audit.db"))
     with TestClient(api.app) as c:
         al = c.get("/alerts").json()
         assert al
@@ -106,4 +158,19 @@ def test_api_flow():
         assert r["status"] == "awaiting_analyst"
         assert c.post(f"/decide/{r['case_id']}", json={"analyst": "a", "decision": "close", "reason": "r"}).json()["status"] == "closed"
         assert c.get(f"/audit/{r['case_id']}").json()["chain_valid"] is True
+        assert c.post(f"/investigate/{al[0]['acc']}").status_code == 409
+        assert c.post(f"/decide/{r['case_id']}", json={"analyst": "a", "decision": "escalate"}).status_code == 409
+        assert c.post(f"/decide/{r['case_id']}", json={"analyst": "a", "decision": "bogus"}).status_code == 422
         assert c.post("/investigate/NOPE").status_code == 404
+
+
+def test_slow_forwarding_mule_is_escalated(world):
+    """A mule whose outflow lands more than 72 hours after the inflows has passthrough 0 but still forwards the money."""
+    d, al, cust = world
+    slow = [a for a in sorted(al) if cust.loc[a, "typology"] == "mule" and d["stats"][a]["passthrough"] < 0.6 and d["stats"][a]["n_cp_in"] >= 8]
+    assert slow
+    inv = Investigator(d)
+    for a in slow:
+        r = inv.investigate(a, al[a]["score"], al[a]["rules"], mode="no_memory")
+        assert r["verdict"]["recommendation"] == "escalate"
+        assert any(p["kind"] == "mule" for p in r["prosecution"])

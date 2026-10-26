@@ -15,6 +15,9 @@ from .policy_docs import PolicySearch
 
 CASH_TYPES = {"restaurant", "kiosk", "hair_salon"}
 ESCALATE_NET, CLOSE_NET, PROSECUTION_MIN = 0.25, -0.15, 0.35
+# A mule forwards most of what it receives to one recipient, but not always within 72 hours of each inflow.
+# Set MULE_OUTFLOW_RATIO above 1 to turn the window-level check off.
+MULE_OUTFLOW_RATIO = 0.8
 
 
 class State(TypedDict, total=False):
@@ -30,6 +33,10 @@ class State(TypedDict, total=False):
     verdict: dict
     note: str
     mode: str
+
+
+class CaseAlreadyDecided(Exception):
+    """Raised when a case that an analyst has already decided is investigated or decided again."""
 
 
 def fmt(x):
@@ -85,7 +92,7 @@ class Investigator:
                  prior_n_in=st["prior_n_in"], prior_monthly_in=st["prior_monthly_in"], prior_n_near=st["prior_n_near"], prior_share_near=st["prior_share_near"],
                  vol_ratio_prior=st["vol_ratio_prior"])
         for k in ("n_txn", "vol_vs_expected", "share_near", "n_near", "n_cp_in", "n_cp_out", "out_conc", "passthrough", "vol_ratio_prior",
-                  "prior_n_near", "prior_share_near", "prior_n_in", "sum_in"):
+                  "prior_n_near", "prior_share_near", "prior_n_in", "sum_in", "sum_out"):
             f[k] = st[k]
         self._log(s, "history_agent", "sql_summary", {"evidence": [e["id"] for e in s["evidence"]]})
         return {"plan": s["plan"][1:], "facts": f}
@@ -158,7 +165,9 @@ class Investigator:
             add("passthrough", "Most of the money left the account within 72 hours of arriving.", 0.25, [self._eid(s, "history", passthrough=1)])
         if f.get("cycle_flag"):
             add("circular", "Money returned to its source through a short loop of accounts.", 0.35, [self._eid(s, "graph", members=1)])
-        if f["n_cp_in"] >= 8 and f["out_conc"] >= 0.8 and f["passthrough"] >= 0.6:
+        fast_forward = f["passthrough"] >= 0.6
+        forwarded = f["sum_in"] > 0 and f["sum_out"] >= MULE_OUTFLOW_RATIO * f["sum_in"]
+        if f["n_cp_in"] >= 8 and f["out_conc"] >= 0.8 and (fast_forward or forwarded):
             add("mule", "Many senders paid in and almost everything went on to one recipient.", 0.40, [self._eid(s, "history", n_in=1), self._eid(s, "history", passthrough=1)])
         if f["vol_ratio_prior"] >= 8 and f["sum_in"] >= 100_000:
             add("spike", "Inflows jumped far above the account's own history.", 0.30, [self._eid(s, "history", prior_n_in=1)])
@@ -248,6 +257,8 @@ class Investigator:
     # ---------- public API ----------
     def investigate(self, acc: str, score: float, rules: list, mode: str = "full") -> dict:
         case_id = f"CASE-{acc}"
+        if case_id in self.cases and self.cases[case_id]["status"] != "awaiting_analyst":
+            raise CaseAlreadyDecided(f"{case_id} was already decided by an analyst")
         out = self.app.invoke({"case_id": case_id, "acc": acc, "score": score, "rules": rules, "mode": mode, "evidence": []})
         res = {"case_id": case_id, "acc": acc, "verdict": out["verdict"], "note": out["note"], "evidence": out["evidence"],
                "prosecution": out["prosecution"], "defence": out["defence"], "facts": out["facts"], "status": "awaiting_analyst"}
@@ -258,6 +269,8 @@ class Investigator:
         if decision not in ("escalate", "close"):
             raise ValueError("decision must be 'escalate' or 'close'")
         c = self.cases[case_id]
+        if c["status"] != "awaiting_analyst":
+            raise CaseAlreadyDecided(f"{case_id} was already decided by an analyst")
         c["status"] = "escalated" if decision == "escalate" else "closed"
         c["analyst"] = {"user": analyst, "decision": decision, "reason": reason}
         self.audit.add(case_id, analyst, "analyst_decision", {"decision": decision, "reason": reason, "system_recommended": c["verdict"]["recommendation"]})
@@ -269,11 +282,23 @@ class Investigator:
 NUM = re.compile(r"\d[\d,]*\.?\d*")
 
 
-def check_note(note: str, evidence: list) -> dict:
-    """Every [E#] tag must exist and every number in the evidence lines must come from the evidence text."""
+def check_note(note: str, evidence: list, prosecution: list | None = None, defence: list | None = None, verdict: dict | None = None) -> dict:
+    """Every [E#] tag must exist and every number in the evidence lines must come from the evidence text.
+    When the arguments and verdict are supplied, the weights and referee scores printed in the note must match them too."""
     ids = {e["id"] for e in evidence}
     tags = set(re.findall(r"\[(E\d+)\]", note))
     ev_nums = set(n.rstrip(".,") for e in evidence for n in NUM.findall(e["text"]))
     body = note.split("Evidence:")[1] if "Evidence:" in note else ""
     quoted = set(n.rstrip(".,") for line in body.splitlines() if line.startswith("- E") for n in NUM.findall(line.split(":", 1)[1]))
-    return {"unknown_tags": sorted(tags - ids), "unsupported_numbers": sorted(quoted - ev_nums), "ok": not (tags - ids) and not (quoted - ev_nums)}
+    res = {"unknown_tags": sorted(tags - ids), "unsupported_numbers": sorted(quoted - ev_nums)}
+    ok = not (tags - ids) and not (quoted - ev_nums)
+    if prosecution is not None and defence is not None and verdict is not None:
+        printed = re.findall(r"\(weight (\d+\.\d+),", note)
+        expected = [f"{a['weight']:.2f}" for a in prosecution + defence]
+        v = verdict
+        ref = f"Referee: suspicion {v['prosecution_score']:.2f}, explanation {v['defence_score']:.2f}, net {v['net']:+.2f}."
+        res["mismatched_weights"] = printed != expected
+        res["mismatched_referee_line"] = ref not in note
+        ok = ok and not res["mismatched_weights"] and not res["mismatched_referee_line"]
+    res["ok"] = ok
+    return res
