@@ -19,6 +19,12 @@ The data includes look-alike customers who are honest but resemble schemes (cash
 
 **The 10,000 "reporting threshold" and the 9,000 to 9,999 band are stand-ins.** I searched for a Swedish rule that sets such a threshold and found none (see [docs/RESEARCH.md](docs/RESEARCH.md)). The 7 guidance snippets are my own paraphrases of general typology descriptions, not quotations from FATF or any regulator.
 
+## What the patterns look like
+
+The workflow looks for five patterns. This is what each looks like in the data, drawn from real accounts in the synthetic dataset. The honest family loop at the bottom right has the same shape as the circular flow, which is exactly why a defender is needed.
+
+![What the patterns look like: structuring, layering, circular flow, mule, dormant burst and an honest family loop](docs/typologies.png)
+
 ## What a case looks like
 
 The three cases below come from real runs on the synthetic data. Orange bars are the prosecutor's arguments, blue bars the defender's, and each number is the argument's weight. The same loop of accounts is escalated when it is undocumented, sent to an analyst when the loop is documented family, and a plain online seller gets a suggested close.
@@ -40,6 +46,12 @@ Referee: suspicion 0.73, explanation 0.00, net +0.73. Recommendation: escalate.
 Status: awaiting analyst decision. This system does not close or escalate cases by itself.
 ```
 
+## The audit log
+
+Every agent step and every analyst decision is appended to a hash chain. Editing an entry is detected by `verify()`. Deleting the newest entries is only detected if the latest `head` (count and hash) was stored somewhere else, because the chain that remains is still valid on its own.
+
+![How the audit log detects an edited entry and deleted entries](docs/audit_chain.svg)
+
 ## Run
 
 ```
@@ -58,6 +70,8 @@ uvicorn crossexam.api:app         # audit log is kept in crossexam_audit.db (set
 docker compose up --build         # API on http://127.0.0.1:8000, docs at /docs
 ```
 
+![How the pieces fit together](docs/architecture.svg)
+
 The image runs as a non-root user and keeps the audit log in a named volume, so it survives restarts. The port is bound to this machine only because the API has no authentication. The container reports healthy about 25 seconds after start (the model is trained at startup).
 
 ### Neo4j export
@@ -71,6 +85,12 @@ This writes a constraint, one `:Account` node per account (including external co
 ## Results
 
 ![Missed suspicious accounts and false escalations, three groups of seeds](docs/results.png)
+
+### Where the alerts go
+
+One run of the full workflow on seed 1. Of the alerts it escalates almost all are really suspicious, and almost everything it sends to an analyst or suggests closing is an honest customer.
+
+![Where the 138 alerts of one run end up](docs/funnel.png)
 
 ### Seeds 1 to 5 (718 alerts, `results.json`)
 
@@ -88,9 +108,13 @@ What this shows, honestly:
 
 ### By account type
 
-![Share of alerts escalated by each method, by account type](docs/typology.png)
+![Share of alerts escalated by each method, by account type](docs/escalation_by_type.png)
 
 These shares are pooled over all 15 seeds. The honest look-alikes are where CrossExam still raises false alarms: 29% of documented family loops and 17% of property sales are escalated instead of sent to an analyst (per seed group the range is 23% to 40% and 11% to 26%). The model alone does not escalate them, but it also gives no reasons and misses the dormant type more often. CrossExam is also slightly worse than the model on structuring (92% against 95% escalated); the rest of its structuring cases go to analyst review.
+
+### The two measured improvements
+
+![Mule escalation before and after the rule fix, and the effect of precedent memory](docs/improvements.png)
 
 ### Mule accounts: a rule fix, and how it was checked
 

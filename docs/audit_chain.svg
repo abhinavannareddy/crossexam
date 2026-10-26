@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" font-family="Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">How the audit log detects tampering</title>
+  <desc id="d">Each audit entry stores the hash of the previous entry. Editing an entry breaks the chain at that entry. Deleting the newest entries is only detected by comparing with a head hash and count stored outside the database.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#52514e"/></marker>
+  </defs>
+  <rect width="960" height="560" fill="#fcfcfb"/>
+  <text x="24" y="36" font-size="20" font-weight="700" fill="#0b0b0b">How the audit log detects tampering</text>
+  <text x="24" y="58" font-size="12.5" fill="#52514e">Each entry stores the hash of the entry before it, so changing one entry changes every hash after it. (Hash values are shortened for illustration.)</text>
+
+  <!-- A: intact -->
+  <text x="24" y="92" font-size="13" font-weight="700" fill="#0b0b0b">1. Intact chain</text>
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="24" y="102" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="124" y="124" font-weight="600" fill="#0b0b0b">Entry 1</text><text x="124" y="142" fill="#52514e">supervisor: plan</text><text x="124" y="160" fill="#52514e" font-family="Consolas, monospace">prev GENESIS | hash a1f3</text>
+    <rect x="272" y="102" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="372" y="124" font-weight="600" fill="#0b0b0b">Entry 2</text><text x="372" y="142" fill="#52514e">history_agent: sql_summary</text><text x="372" y="160" fill="#52514e" font-family="Consolas, monospace">prev a1f3 | hash 7c20</text>
+    <rect x="520" y="102" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="620" y="124" font-weight="600" fill="#0b0b0b">Entry 3</text><text x="620" y="142" fill="#52514e">referee: verdict</text><text x="620" y="160" fill="#52514e" font-family="Consolas, monospace">prev 7c20 | hash 09de</text>
+    <rect x="768" y="102" width="168" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="852" y="124" font-weight="600" fill="#0b0b0b">Entry 4</text><text x="852" y="142" fill="#52514e">analyst: decision</text><text x="852" y="160" fill="#52514e" font-family="Consolas, monospace">prev 09de | hash e5b8</text>
+  </g>
+  <line x1="224" y1="139" x2="270" y2="139" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="472" y1="139" x2="518" y2="139" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="720" y1="139" x2="766" y2="139" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="24" y="198" font-size="12" fill="#0b8a5a" font-weight="600">verify() recomputes every hash: OK</text>
+
+  <!-- B: edit -->
+  <text x="24" y="238" font-size="13" font-weight="700" fill="#0b0b0b">2. Someone edits entry 2</text>
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="24" y="248" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="124" y="270" font-weight="600" fill="#0b0b0b">Entry 1</text><text x="124" y="288" fill="#52514e">unchanged</text><text x="124" y="306" fill="#52514e" font-family="Consolas, monospace">hash a1f3</text>
+    <rect x="272" y="248" width="200" height="74" rx="8" fill="#fdeee8" stroke="#eb6834" stroke-width="2"/><text x="372" y="270" font-weight="600" fill="#0b0b0b">Entry 2 (edited)</text><text x="372" y="288" fill="#52514e">payload changed</text><text x="372" y="306" fill="#b8431a" font-family="Consolas, monospace">stored hash 7c20 does not match</text>
+    <rect x="520" y="248" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="620" y="270" font-weight="600" fill="#0b0b0b">Entry 3</text><text x="620" y="288" fill="#52514e">still points to 7c20</text><text x="620" y="306" fill="#52514e" font-family="Consolas, monospace">hash 09de</text>
+    <rect x="768" y="248" width="168" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="852" y="270" font-weight="600" fill="#0b0b0b">Entry 4</text><text x="852" y="288" fill="#52514e">unchanged</text><text x="852" y="306" fill="#52514e" font-family="Consolas, monospace">hash e5b8</text>
+  </g>
+  <line x1="224" y1="285" x2="270" y2="285" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="472" y1="285" x2="518" y2="285" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="720" y1="285" x2="766" y2="285" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="24" y="344" font-size="12" fill="#b8431a" font-weight="600">verify() returns broken_at = 2</text>
+
+  <!-- C: delete tail -->
+  <text x="24" y="384" font-size="13" font-weight="700" fill="#0b0b0b">3. Someone deletes the newest entries</text>
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="24" y="394" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="124" y="416" font-weight="600" fill="#0b0b0b">Entry 1</text><text x="124" y="434" fill="#52514e">unchanged</text><text x="124" y="452" fill="#52514e" font-family="Consolas, monospace">hash a1f3</text>
+    <rect x="272" y="394" width="200" height="74" rx="8" fill="#fff" stroke="#c9c8c2"/><text x="372" y="416" font-weight="600" fill="#0b0b0b">Entry 2</text><text x="372" y="434" fill="#52514e">unchanged</text><text x="372" y="452" fill="#52514e" font-family="Consolas, monospace">hash 7c20</text>
+    <rect x="520" y="394" width="200" height="74" rx="8" fill="#f1f0ec" stroke="#c9c8c2" stroke-dasharray="5 4"/><text x="620" y="416" font-weight="600" fill="#52514e">Entries 3 and 4</text><text x="620" y="434" fill="#52514e">deleted</text><text x="620" y="452" fill="#52514e">no gap is visible</text>
+  </g>
+  <line x1="224" y1="431" x2="270" y2="431" stroke="#52514e" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="768" y="394" width="168" height="74" rx="8" fill="#0b0b0b"/>
+  <g font-size="11.5" text-anchor="middle" fill="#fff"><text x="852" y="416" font-weight="700">Anchor kept elsewhere</text><text x="852" y="434" fill="#d9d8d2">count 4, head e5b8</text><text x="852" y="452" fill="#d9d8d2">from GET /audit/{case}</text></g>
+  <text x="24" y="490" font-size="12" fill="#52514e">The remaining chain is still valid on its own, so verify() alone says OK.</text>
+  <text x="24" y="510" font-size="12" fill="#b8431a" font-weight="600">verify(anchor) fails: the log has 2 entries but the anchor says 4, so deletion is detected.</text>
+  <rect x="24" y="526" width="912" height="24" rx="6" fill="#f1f0ec" stroke="#c9c8c2"/>
+  <text x="480" y="543" text-anchor="middle" font-size="11.5" fill="#0b0b0b">This is a plain hash chain, simpler than the tree structure in the research it is modelled on (see docs/RESEARCH.md).</text>
+</svg>
