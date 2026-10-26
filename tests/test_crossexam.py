@@ -152,6 +152,7 @@ def test_api_flow(tmp_path, monkeypatch):
     from crossexam import api
     monkeypatch.setenv("CROSSEXAM_AUDIT_DB", str(tmp_path / "audit.db"))
     with TestClient(api.app) as c:
+        assert c.get("/health").json()["status"] == "ok"
         al = c.get("/alerts").json()
         assert al
         r = c.post(f"/investigate/{al[0]['acc']}").json()
@@ -174,3 +175,59 @@ def test_slow_forwarding_mule_is_escalated(world):
         r = inv.investigate(a, al[a]["score"], al[a]["rules"], mode="no_memory")
         assert r["verdict"]["recommendation"] == "escalate"
         assert any(p["kind"] == "mule" for p in r["prosecution"])
+
+
+def test_guidance_label_matches_argument_kind(world):
+    d, al, cust = world
+    a = pick(al, cust, "circular")
+    r = Investigator(d).investigate(a, al[a]["score"], al[a]["rules"], mode="no_memory")
+    got = {x["kind"]: x["policy"] for x in r["prosecution"]}
+    assert got.get("layering") == "P2" and got.get("circular") == "P3"
+    assert got["spike"] == "P5"
+    assert "1 counterparties" not in r["note"] and "1 inflows" not in r["note"]
+
+
+def test_decision_is_refused_after_restart_when_audit_log_has_one(world, tmp_path):
+    d, al, cust = world
+    path = str(tmp_path / "audit.db")
+    a = pick(al, cust, "structuring")
+    first = Investigator(d, audit=AuditLog(path))
+    r = first.investigate(a, al[a]["score"], al[a]["rules"])
+    first.decide(r["case_id"], "analyst1", "escalate")
+    restarted = Investigator(d, audit=AuditLog(path))       # in-memory cases are gone, the audit log is not
+    with pytest.raises(CaseAlreadyDecided):
+        restarted.investigate(a, al[a]["score"], al[a]["rules"])
+
+
+def test_failed_audit_write_leaves_case_undecided(world):
+    d, al, cust = world
+    a = pick(al, cust, "layering")
+
+    class Broken(AuditLog):
+        fail = False
+
+        def add(self, *args, **kw):
+            if self.fail and args[2] == "analyst_decision":
+                raise RuntimeError("disk full")
+            return super().add(*args, **kw)
+
+    inv = Investigator(d, audit=Broken())
+    r = inv.investigate(a, al[a]["score"], al[a]["rules"])
+    inv.audit.fail = True
+    with pytest.raises(RuntimeError):
+        inv.decide(r["case_id"], "analyst1", "close")
+    assert inv.cases[r["case_id"]]["status"] == "awaiting_analyst" and len(inv.memory) == 0
+    inv.audit.fail = False
+    assert inv.decide(r["case_id"], "analyst1", "close")["status"] == "closed"
+
+
+def test_api_validation_and_unknown_case(tmp_path, monkeypatch):
+    from crossexam import api
+    monkeypatch.setenv("CROSSEXAM_AUDIT_DB", str(tmp_path / "audit.db"))
+    with TestClient(api.app) as c:
+        assert c.post("/decide/CASE-NOPE", json={"analyst": "a", "decision": "close"}).status_code == 404
+        acc = c.get("/alerts").json()[0]["acc"]
+        case = c.post(f"/investigate/{acc}").json()["case_id"]
+        assert c.post(f"/decide/{case}", json={"analyst": "", "decision": "close"}).status_code == 422
+        assert c.post(f"/decide/{case}", json={"analyst": "a" * 101, "decision": "close"}).status_code == 422
+        assert c.post(f"/decide/{case}", json={"analyst": "a", "decision": "close", "reason": "x" * 2001}).status_code == 422

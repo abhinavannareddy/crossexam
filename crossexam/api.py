@@ -4,7 +4,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .agents import CaseAlreadyDecided, Investigator
 from .audit import AuditLog
@@ -32,9 +32,14 @@ app = FastAPI(title="CrossExam", lifespan=lifespan)
 
 
 class Decision(BaseModel):
-    analyst: str
-    decision: str
-    reason: str = ""
+    analyst: str = Field(min_length=1, max_length=100)
+    decision: str = Field(max_length=20)
+    reason: str = Field(default="", max_length=2000)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "alerts": len(_state.get("al", {}))}
 
 
 @app.get("/alerts")
@@ -73,4 +78,5 @@ def decide(case_id: str, body: Decision):
 @app.get("/audit/{case_id}")
 def audit(case_id: str):
     inv = _state["inv"]
-    return {"chain_valid": inv.audit.verify()["ok"], "head": inv.audit.head(), "entries": inv.audit.entries(case_id)}
+    with _lock:
+        return {"chain_valid": inv.audit.verify()["ok"], "head": inv.audit.head(), "entries": inv.audit.entries(case_id)}

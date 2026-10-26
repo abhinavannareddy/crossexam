@@ -27,25 +27,41 @@ class AuditLog:
                         (ts, case_id, actor, action, body, prev, self._h(prev, ts, case_id, actor, action, body)))
         self.db.commit()
 
+    def has(self, case_id, action):
+        with self.lock:
+            return self.db.execute("SELECT 1 FROM audit WHERE case_id=? AND action=? LIMIT 1", (case_id, action)).fetchone() is not None
+
     def entries(self, case_id=None):
+        with self.lock:
+            return self._entries(case_id)
+
+    def _entries(self, case_id=None):
         q, a = ("SELECT id,ts,case_id,actor,action,payload FROM audit WHERE case_id=? ORDER BY id", (case_id,)) if case_id else \
                ("SELECT id,ts,case_id,actor,action,payload FROM audit ORDER BY id", ())
         return [dict(zip(("id", "ts", "case_id", "actor", "action", "payload"), r)) for r in self.db.execute(q, a)]
 
     def head(self):
         """Latest hash and entry count. Store this outside the database (a ticket, a signed message) to anchor the chain."""
-        row = self.db.execute("SELECT hash FROM audit ORDER BY id DESC LIMIT 1").fetchone()
-        return {"hash": row[0] if row else "GENESIS", "count": self.db.execute("SELECT COUNT(*) FROM audit").fetchone()[0]}
+        with self.lock:
+            return self._head()
+
+    def _head(self):
+        row = self.db.execute("SELECT hash, (SELECT COUNT(*) FROM audit) FROM audit ORDER BY id DESC LIMIT 1").fetchone()
+        return {"hash": row[0], "count": row[1]} if row else {"hash": "GENESIS", "count": 0}
 
     def verify(self, anchor=None):
         """Check the chain. With an anchor from head(), also detect deleted newest entries or a rebuilt chain."""
+        with self.lock:
+            return self._verify(anchor)
+
+    def _verify(self, anchor=None):
         prev = "GENESIS"
         for r in self.db.execute("SELECT id,ts,case_id,actor,action,payload,prev,hash FROM audit ORDER BY id"):
             if r[6] != prev or r[7] != self._h(prev, r[1], r[2], r[3], r[4], r[5]):
                 return {"ok": False, "broken_at": r[0]}
             prev = r[7]
         if anchor is not None:
-            h = self.head()
+            h = self._head()
             if h["count"] < anchor["count"] or self._hash_at(anchor["count"]) != anchor["hash"]:
                 return {"ok": False, "broken_at": "anchor"}
         return {"ok": True}

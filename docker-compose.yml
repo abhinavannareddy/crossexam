@@ -1,0 +1,9 @@
+services:
+  crossexam:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"     # bound to this machine only: the API has no authentication
+    volumes:
+      - audit:/data
+volumes:
+  audit:

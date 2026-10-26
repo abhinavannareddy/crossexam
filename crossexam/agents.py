@@ -35,8 +35,18 @@ class State(TypedDict, total=False):
     mode: str
 
 
+# Each argument kind points at the guidance snippet written for it (see policy_docs.py), instead of a loose text match.
+POLICY_FOR_KIND = {"structuring": "P1", "cash_business": "P1", "consistent_history": "P7", "stable_volume": "P7", "layering": "P2", "passthrough": "P2",
+                   "circular": "P3", "family_loop": "P3", "mule": "P4", "marketplace": "P4", "spike": "P5", "dormant": "P5", "new_account": "P5",
+                   "documented_event": "P6"}
+
+
 class CaseAlreadyDecided(Exception):
     """Raised when a case that an analyst has already decided is investigated or decided again."""
+
+
+def plural(n, one, many=None):
+    return one if n == 1 else (many or one + "s")
 
 
 def fmt(x):
@@ -81,7 +91,7 @@ class Investigator:
     def history(self, s: State) -> State:
         st, f = s["facts"]["stats"], dict(s["facts"])
         refs = st["txn_ids_in_window"][:6]
-        self._ev(s, "history", f"In the last 30 days the account received {fmt(st['sum_in'])} SEK in {st['n_in']} inflows from {st['n_cp_in']} counterparties and sent {fmt(st['sum_out'])} SEK to {st['n_cp_out']}.",
+        self._ev(s, "history", f"In the last 30 days the account received {fmt(st['sum_in'])} SEK in {st['n_in']} {plural(st['n_in'], 'inflow')} from {st['n_cp_in']} {plural(st['n_cp_in'], 'counterparty', 'counterparties')} and sent {fmt(st['sum_out'])} SEK to {st['n_cp_out']} {plural(st['n_cp_out'], 'counterparty', 'counterparties')}.",
                  sum_in=st["sum_in"], n_in=st["n_in"], n_cp_in=st["n_cp_in"], sum_out=st["sum_out"], n_cp_out=st["n_cp_out"], txn_refs=refs)
         if st["n_near"]:
             self._ev(s, "history", f"{st['n_near']} inflows were between 9,000 and 9,999 SEK, which is {st['share_near']*100:.0f}% of all inflows.",
@@ -145,7 +155,7 @@ class Investigator:
     # ---------- arguments ----------
     def _arg(self, s, kind, claim, w, evs, ptype):
         pid = f"{'PA' if ptype == 'pro' else 'DA'}{len(s['prosecution' if ptype == 'pro' else 'defence']) + 1}"
-        return {"id": pid, "claim": claim, "weight": w, "evidence": evs, "policy": self.policy.top(claim), "kind": kind}
+        return {"id": pid, "claim": claim, "weight": w, "evidence": evs, "policy": POLICY_FOR_KIND.get(kind) or self.policy.top(claim), "kind": kind}
 
     def _eid(self, s, kind, **match):
         for e in s["evidence"]:
@@ -156,7 +166,7 @@ class Investigator:
     def prosecutor(self, s: State) -> State:
         f, args = s["facts"], []
         add = lambda kind, claim, w, ev: args.append({"id": f"PA{len(args) + 1}", "claim": claim, "weight": w, "evidence": [e for e in ev if e],
-                                                      "policy": self.policy.top(claim), "kind": kind})
+                                                      "policy": POLICY_FOR_KIND.get(kind) or self.policy.top(claim), "kind": kind})
         if f["n_near"] >= 5 and f["share_near"] >= 0.5:
             add("structuring", "Repeated inflows just under the reporting threshold.", 0.40, [self._eid(s, "history", n_near=1)])
         if f.get("chain_len", 1) >= 3:
@@ -186,7 +196,7 @@ class Investigator:
             return {"defence": []}
         f, args = s["facts"], []
         add = lambda kind, claim, w, ev: args.append({"id": f"DA{len(args) + 1}", "claim": claim, "weight": w, "evidence": [e for e in ev if e],
-                                                      "policy": self.policy.top(claim), "kind": kind})
+                                                      "policy": POLICY_FOR_KIND.get(kind) or self.policy.top(claim), "kind": kind})
         prof = self._eid(s, "profile", segment=1)
         if f["prior_n_near"] >= 5 and f["prior_share_near"] >= 0.4:
             add("consistent_history", "The same deposit pattern appears throughout the previous two months.", 0.45, [self._eid(s, "history", prior_n_in=1)])
@@ -257,7 +267,7 @@ class Investigator:
     # ---------- public API ----------
     def investigate(self, acc: str, score: float, rules: list, mode: str = "full") -> dict:
         case_id = f"CASE-{acc}"
-        if case_id in self.cases and self.cases[case_id]["status"] != "awaiting_analyst":
+        if (case_id in self.cases and self.cases[case_id]["status"] != "awaiting_analyst") or self.audit.has(case_id, "analyst_decision"):
             raise CaseAlreadyDecided(f"{case_id} was already decided by an analyst")
         out = self.app.invoke({"case_id": case_id, "acc": acc, "score": score, "rules": rules, "mode": mode, "evidence": []})
         res = {"case_id": case_id, "acc": acc, "verdict": out["verdict"], "note": out["note"], "evidence": out["evidence"],
@@ -269,11 +279,12 @@ class Investigator:
         if decision not in ("escalate", "close"):
             raise ValueError("decision must be 'escalate' or 'close'")
         c = self.cases[case_id]
-        if c["status"] != "awaiting_analyst":
+        if c["status"] != "awaiting_analyst" or self.audit.has(case_id, "analyst_decision"):
             raise CaseAlreadyDecided(f"{case_id} was already decided by an analyst")
+        # The audit entry is written first: if it fails, the case stays undecided instead of being decided without a record.
+        self.audit.add(case_id, analyst, "analyst_decision", {"decision": decision, "reason": reason, "system_recommended": c["verdict"]["recommendation"]})
         c["status"] = "escalated" if decision == "escalate" else "closed"
         c["analyst"] = {"user": analyst, "decision": decision, "reason": reason}
-        self.audit.add(case_id, analyst, "analyst_decision", {"decision": decision, "reason": reason, "system_recommended": c["verdict"]["recommendation"]})
         self.memory.add(case_id, {k: c["facts"].get(k, 0.0) for k in ("n_txn", "vol_vs_expected", "share_near", "n_near", "n_cp_in", "n_cp_out", "out_conc", "passthrough", "vol_ratio_prior", "chain_len", "cycle_flag")},
                         "suspicious" if decision == "escalate" else "legitimate")
         return c

@@ -1,0 +1,20 @@
+Case CASE-A0624: alert on account A0624 (model score 1.00; rules: R2 money returns to its source through a short cycle; R4 inflow far above expected volume; R5 sudden jump against history)
+
+Case for suspicion:
+- The money passed through a chain of accounts almost unchanged. (weight 0.40, guidance P2) [E5]
+- Money returned to its source through a short loop of accounts. (weight 0.35, guidance P3) [E4]
+- Inflows jumped far above the account's own history. (weight 0.30, guidance P5) [E3]
+Case for a legitimate explanation:
+- No supporting explanation found.
+
+Referee: suspicion 0.73, explanation 0.00, net +0.73. Recommendation: escalate.
+Evidence:
+- E1: In the last 30 days the account received 780,303 SEK in 3 inflows from 1 counterparty and sent 815,891 SEK to 1 counterparty.
+- E2: 68% of the money received left the account within 72 hours of an inflow, and 100% of outgoing money went to one counterparty.
+- E3: In the previous 60 days the account had 0 inflows averaging 0 SEK per month, of which 0 were between 9,000 and 9,999 SEK.
+- E4: Money moved around a closed loop of 4 accounts (A0624, A0625, A0626, A0627) within 7 days.
+- E5: The account sits in a chain of 6 accounts where almost the full amount was passed on within 36 hours.
+- E6: Customer profile: private account, business type 'none', 7 months old, expected monthly volume 16,431 SEK, documented events: none.
+- E7: The relationship between the accounts in the loop is not documented.
+
+Status: awaiting analyst decision. This system does not close or escalate cases by itself.
